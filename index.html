@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Geometry Dash Mini – Perfect Spacing</title>
+<title>Geometry Dash Mini – Pit Update</title>
 <style>
   html, body {
     margin: 0;
@@ -37,7 +37,7 @@ canvas.width = W; canvas.height = H;
 let ground = H - 120;
 
 // ------------------------------------------------------------
-// BACKGROUND STARFIELD
+// STARFIELD
 // ------------------------------------------------------------
 const starLayers = [
   { speed: 0.3, count: 60, stars: [] },
@@ -119,10 +119,14 @@ function jump(){
 // ------------------------------------------------------------
 let obstacles = [];
 
-// Perfect spacing based on your physics
+// Perfect spacing
 const GAP_SINGLE = 260;
 const GAP_DOUBLE = 330;
 const GAP_AFTER_PATTERN = 260;
+
+// Pit sizes (safe)
+const PIT_MIN = 180;
+const PIT_MAX = 230;
 
 function ensureGap(x){
   if(obstacles.length === 0) return x;
@@ -136,6 +140,7 @@ function ensureGap(x){
   return x;
 }
 
+// ------------- SPIKES -------------
 function pushSingleSpike(x){
   obstacles.push({
     type:"single",
@@ -148,29 +153,28 @@ function pushSingleSpike(x){
 }
 
 function pushDoubleSpike(x){
-  obstacles.push({
-    type:"single",
-    x:x,
-    y:ground,
-    w:60,
-    h:60,
-    passed:false
-  });
-
-  obstacles.push({
-    type:"single",
-    x:x + GAP_DOUBLE,
-    y:ground,
-    w:60,
-    h:60,
-    passed:false
-  });
+  pushSingleSpike(x);
+  pushSingleSpike(x + GAP_DOUBLE);
 }
 
 function pushTriplePack(x){
   pushSingleSpike(x);
   pushSingleSpike(x + GAP_DOUBLE);
-  pushSingleSpike(x + GAP_DOUBLE * 2);
+  pushSingleSpike(x + GAP_DOUBLE*2);
+}
+
+// ------------- PIT -------------
+function pushPit(x){
+  let size = PIT_MIN + Math.random()*(PIT_MAX-PIT_MIN);
+
+  obstacles.push({
+    type:"pit",
+    x:x,
+    y:ground,
+    w:size,
+    h:0,
+    passed:false
+  });
 }
 
 // ------------------------------------------------------------
@@ -179,44 +183,57 @@ function pushTriplePack(x){
 function spawnPattern(){
   let r = Math.random();
 
-  // Single spike
+  // ✅ 10% CHANCE FOR PIT
+  if(r < 0.10){
+    let px = ensureGap(W + 80);
+    pushPit(px);
+    return;
+  }
+
+  // ✅ Spike patterns
   if(r < 0.45){
     let px = ensureGap(W + 60);
     pushSingleSpike(px);
     return;
   }
 
-  // Clean double
   if(r < 0.75){
     let px = ensureGap(W + 60);
     pushDoubleSpike(px);
     return;
   }
 
-  // Triple pack
   if(r < 0.95){
     let px = ensureGap(W + 60);
     pushTriplePack(px);
     return;
   }
 
-  // Combo pattern: single -> double
+  // Combo pattern: single → double
   let px = ensureGap(W + 60);
   pushSingleSpike(px);
   pushDoubleSpike(px + GAP_DOUBLE + GAP_SINGLE);
 }
 
 // ------------------------------------------------------------
-// DRAW SPIKES
+// DRAW OBSTACLES
 // ------------------------------------------------------------
-function drawSpike(o){
-  ctx.fillStyle = "#f00";
-  ctx.beginPath();
-  ctx.moveTo(o.x, o.y);
-  ctx.lineTo(o.x + o.w/2, o.y - o.h);
-  ctx.lineTo(o.x + o.w, o.y);
-  ctx.closePath();
-  ctx.fill();
+function drawObstacle(o){
+  if(o.type === "single"){
+    ctx.fillStyle = "#f00";
+    ctx.beginPath();
+    ctx.moveTo(o.x, o.y);
+    ctx.lineTo(o.x + o.w/2, o.y - o.h);
+    ctx.lineTo(o.x + o.w, o.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  if(o.type === "pit"){
+    // simply do not draw ground where pit is
+    ctx.fillStyle = "#000";
+    ctx.fillRect(o.x, ground, o.w, 300);
+  }
 }
 
 // ------------------------------------------------------------
@@ -244,6 +261,15 @@ function cubeHitsSpike(c,o){
   for(let k of corners)
     if(pointInTri(k[0],k[1],ax,ay,bx,by,cx,cy))
       return true;
+  return false;
+}
+
+function cubeFallsInPit(c,o){
+  // Pit is just a missing ground section
+  let cubeBottom = c.y + c.size;
+  if(cubeBottom >= ground && c.x + c.size > o.x && c.x < o.x + o.w){
+    return true;
+  }
   return false;
 }
 
@@ -303,7 +329,7 @@ let score=0;
 let frame=0;
 
 // ------------------------------------------------------------
-// UPDATE + LOOP
+// UPDATE
 // ------------------------------------------------------------
 function updateCube(){
   cube.dy += cube.gravity;
@@ -327,19 +353,26 @@ function updateObstacles(){
   obstacles.forEach(o=>{
     o.x -= gameSpeed;
 
-    if(!o.passed && o.x+o.w < cube.x){
+    if(!o.passed && o.x + o.w < cube.x){
       score++;
       document.getElementById("scoreDisplay").innerText="Score: "+score;
       o.passed = true;
     }
   });
 
-  obstacles = obstacles.filter(o=>o.x+o.w > 0);
+  obstacles = obstacles.filter(o=>o.x + o.w > 0);
 }
 
 function checkCollision(){
   for(let o of obstacles){
-    if(cubeHitsSpike(cube,o)){
+    if(o.type === "single" && cubeHitsSpike(cube,o)){
+      explode(cube.x+cube.size/2, cube.y+cube.size/2);
+      gameOver=true;
+      setTimeout(reset,1500);
+      return;
+    }
+
+    if(o.type === "pit" && cubeFallsInPit(cube,o)){
       explode(cube.x+cube.size/2, cube.y+cube.size/2);
       gameOver=true;
       setTimeout(reset,1500);
@@ -363,15 +396,22 @@ function reset(){
   frame=0;
 }
 
+// ------------------------------------------------------------
+// LOOP
+// ------------------------------------------------------------
 function loop(){
   ctx.clearRect(0,0,W,H);
+
   drawStars();
 
+  // Draw ground first
   ctx.fillStyle="#111";
   ctx.fillRect(0,ground,W,300);
 
-  obstacles.forEach(drawSpike);
+  obstacles.forEach(drawObstacle);
+
   drawParticles();
+
   if(!gameOver) drawCube();
 
   if(!gameOver){
