@@ -1,480 +1,372 @@
-<!DOCTYPE html>\
-<html>\
-<head>\
-<meta charset="UTF-8">\
-<meta name="viewport" content="width=device-width, initial-scale=1.0">\
-<title>Geometry Dash Mini</title>\
-<style>\
-  html, body \{\
-    margin: 0;\
-    padding: 0;\
-    overflow: hidden;\
-    background: #000;\
-    touch-action: none;\
-  \}\
-  canvas \{ background:#000; display:block; \}\
-</style>\
-</head>\
-<body>\
-\
-<canvas id="game"></canvas>\
-\
-<div id="scoreDisplay" style="\
-  position:absolute;top:20px;left:20px;\
-  color:#0ff;font:32px monospace;">\
-  Score: 0\
-</div>\
-\
-<script>\
-// ------------------------------------------------------------\
-// CANVAS\
-// ------------------------------------------------------------\
-const canvas = document.getElementById("game");\
-const ctx = canvas.getContext("2d");\
-let W = innerWidth, H = innerHeight;\
-canvas.width = W; canvas.height = H;\
-\
-let ground = H - 120;\
-\
-// ------------------------------------------------------------\
-// STARFIELD\
-// ------------------------------------------------------------\
-const starLayers = [\
-  \{ speed: 0.3, count: 60, stars: [] \},\
-  \{ speed: 0.6, count: 40, stars: [] \},\
-  \{ speed: 1.0, count: 20, stars: [] \}\
-];\
-\
-function initStars()\{\
-  starLayers.forEach(l=>\{\
-    l.stars = Array.from(\{length:l.count\}, ()=>(\{\
-      x: Math.random()*W,\
-      y: Math.random()*H,\
-      size: Math.random()*2+1\
-    \}));\
-  \});\
-\}\
-function drawStars()\{\
-  ctx.fillStyle="#fff";\
-  starLayers.forEach(l=>\{\
-    l.stars.forEach(s=>\{\
-      s.x -= l.speed;\
-      if(s.x < 0) s.x = W;\
-      ctx.fillRect(s.x,s.y,s.size,s.size);\
-    \});\
-  \});\
-\}\
-initStars();\
-\
-// ------------------------------------------------------------\
-// CUBE TEXTURE (crate.png with fallback)\
-// ------------------------------------------------------------\
-let cubeImg = new Image();\
-let cubeImgLoaded = false;\
-\
-cubeImg.onload = () => \{ cubeImgLoaded = true; \};\
-cubeImg.onerror = () => \{\
-  console.warn("crate.png not found \'97 using default cube.");\
-  cubeImgLoaded = false;\
-\};\
-\
-// \uc0\u9989  load your asset\
-cubeImg.src = "./chronometry dash/assets/crate.png";
-\
-// ------------------------------------------------------------\
-// PLAYER\
-// ------------------------------------------------------------\
-let cube = \{\
-  x:120,\
-  y:ground-60,\
-  size:60,\
-  dy:0,\
-  gravity:1.1,\
-  jumpForce:-19,\
-  jumping:false,\
-  rotation:0,\
-  rotationSpeed:0,\
-  targetRotation:0,\
-  airTimeFrames:0,\
-  currentAirFrame:0\
-\};\
-\
-function calculateAirTime()\{\
-  let tempDy = cube.jumpForce, frames=0;\
-  while(true)\{\
-    tempDy += cube.gravity; frames++;\
-    if(tempDy>0 && frames>2 && tempDy*frames>65) break;\
-  \}\
-  return frames;\
-\}\
-\
-function jump()\{\
-  if(!cube.jumping)\{\
-    cube.dy = cube.jumpForce;\
-    cube.jumping = true;\
-\
-    cube.airTimeFrames = calculateAirTime();\
-    cube.currentAirFrame = 0;\
-    cube.rotationSpeed = 90 / cube.airTimeFrames;\
-    cube.targetRotation = cube.rotation + 90;\
-  \}\
-\}\
-\
-// ------------------------------------------------------------\
-// OBSTACLES\
-// ------------------------------------------------------------\
-let obstacles = [];\
-\
-function ensureSafeGap(x)\{\
-  let minGap = 180;\
-  if(obstacles.length === 0) return x;\
-\
-  let last = obstacles[obstacles.length - 1];\
-  let lastRight = last.x + (last.size || last.w);\
-\
-  if(x - lastRight < minGap)\{\
-    return lastRight + minGap;\
-  \}\
-\
-  return x;\
-\}\
-\
-function spawnObstacle()\{\
-\
-  let r = Math.random();\
-  let spikeSpacing = 265;\
-  let platformGap = 360;\
-\
-  if(r < 0.25)\{\
-\
-    let py = ground - (cube.size + 85);\
-    let px = ensureSafeGap(W + 60);\
-\
-    obstacles.push(\{\
-      type:"platform",\
-      x: px,\
-      y: py,\
-      w: 140,\
-      h: 20,\
-      passed:false\
-    \});\
-\
-    let sx1 = px + platformGap;\
-    sx1 = ensureSafeGap(sx1);\
-    obstacles.push(\{\
-      type:"spike",\
-      x: sx1,\
-      y: ground,\
-      size:60,\
-      passed:false\
-    \});\
-\
-    let sx2 = sx1 + spikeSpacing;\
-    obstacles.push(\{\
-      type:"spike",\
-      x: sx2,\
-      y: ground,\
-      size:60,\
-      passed:false\
-    \});\
-\
-    return;\
-  \}\
-\
-  if(r < 0.55)\{\
-\
-    let x1 = ensureSafeGap(W + 60);\
-\
-    obstacles.push(\{\
-      type:"spike",\
-      x: x1,\
-      y: ground,\
-      size:60,\
-      passed:false\
-    \});\
-\
-    obstacles.push(\{\
-      type:"spike",\
-      x: x1 + spikeSpacing,\
-      y: ground,\
-      size:60,\
-      passed:false\
-    \});\
-\
-    return;\
-  \}\
-\
-  let x = ensureSafeGap(W + 60);\
-  obstacles.push(\{\
-    type:"spike",\
-    x: x,\
-    y: ground,\
-    size:60,\
-    passed:false\
-  \});\
-\
-\}\
-\
-function drawSpike(o)\{\
-  ctx.fillStyle="#f00";\
-  ctx.beginPath();\
-  ctx.moveTo(o.x,o.y);\
-  ctx.lineTo(o.x+o.size/2,o.y-o.size);\
-  ctx.lineTo(o.x+o.size,o.y);\
-  ctx.closePath();\
-  ctx.fill();\
-\}\
-\
-function drawPlatform(o)\{\
-  ctx.fillStyle="#0f0";\
-  ctx.fillRect(o.x,o.y,o.w,o.h);\
-\}\
-\
-// ------------------------------------------------------------\
-// PERFECT TRIANGLE HITBOX\
-// ------------------------------------------------------------\
-function pointInTriangle(px, py, ax, ay, bx, by, cx, cy)\{\
-  const area = Math.abs((bx-ax)*(cy-ay) - (cx-ax)*(by-ay));\
-  const area1 = Math.abs((ax-px)*(by-py) - (bx-px)*(ay-py));\
-  const area2 = Math.abs((bx-px)*(cy-py) - (cx-px)*(by-py));\
-  const area3 = Math.abs((cx-px)*(ay-py) - (ax-px)*(cy-py));\
-  return Math.abs(area - (area1 + area2 + area3)) < 0.2;\
-\}\
-\
-function cubeHitsSpike(cube, spike)\{\
-  let s = spike.size;\
-  let ax = spike.x;\
-  let ay = spike.y;\
-  let bx = spike.x + s/2;\
-  let by = spike.y - s;\
-  let cx = spike.x + s;\
-  let cy = spike.y;\
-\
-  let corners = [\
-    [cube.x, cube.y],\
-    [cube.x + cube.size, cube.y],\
-    [cube.x, cube.y + cube.size],\
-    [cube.x + cube.size, cube.y + cube.size]\
-  ];\
-\
-  for(let c of corners)\{\
-    if(pointInTriangle(c[0], c[1], ax, ay, bx, by, cx, cy))\{\
-      return true;\
-    \}\
-  \}\
-  return false;\
-\}\
-\
-// ------------------------------------------------------------\
-// EXPLOSION\
-// ------------------------------------------------------------\
-let particles=[];\
-\
-function createExplosion(x,y)\{\
-  for(let i=0;i<20;i++)\{\
-    particles.push(\{\
-      x,y,\
-      dx:(Math.random()-0.5)*14,\
-      dy:(Math.random()-1.2)*14,\
-      size:Math.random()*6+3,\
-      alpha:1\
-    \});\
-  \}\
-\}\
-\
-function drawParticles()\{\
-  particles.forEach(p=>\{\
-    ctx.fillStyle=`rgba(255,0,0,$\{p.alpha\})`;\
-    ctx.fillRect(p.x,p.y,p.size,p.size);\
-    p.x+=p.dx; p.y+=p.dy; p.dy+=0.4; p.alpha-=0.03;\
-  \});\
-  particles=particles.filter(p=>p.alpha>0);\
-\}\
-\
-// ------------------------------------------------------------\
-// DRAW CUBE (with crate.png support)\
-// ------------------------------------------------------------\
-function drawCube()\{\
-  ctx.save();\
-  ctx.translate(cube.x + cube.size/2, cube.y + cube.size/2);\
-  ctx.rotate(cube.rotation * Math.PI/180);\
-  ctx.shadowBlur = 25;\
-  ctx.shadowColor = "#0ff";\
-\
-  if (cubeImgLoaded) \{\
-    ctx.drawImage(\
-      cubeImg,\
-      -cube.size/2,\
-      -cube.size/2,\
-      cube.size,\
-      cube.size\
-    );\
-  \} else \{\
-    ctx.fillStyle="#0ff";\
-    ctx.fillRect(\
-      -cube.size/2,\
-      -cube.size/2,\
-      cube.size,\
-      cube.size\
-    );\
-  \}\
-\
-  ctx.restore();\
-\}\
-\
-// ------------------------------------------------------------\
-// GAME STATE\
-// ------------------------------------------------------------\
-let gameOver=false;\
-let gameSpeed=10;\
-let speedMilestones=[10,20,35,50,60,75,100];\
-let milestoneIndex=0;\
-let score=0;\
-\
-// ------------------------------------------------------------\
-// UPDATE\
-// ------------------------------------------------------------\
-function updateCube()\{\
-\
-  cube.dy += cube.gravity;\
-  cube.y += cube.dy;\
-\
-  if(cube.jumping)\{\
-    cube.rotation += cube.rotationSpeed;\
-    if(cube.rotation > cube.targetRotation) cube.rotation = cube.targetRotation;\
-  \}\
-\
-  for(let o of obstacles)\{\
-    if(o.type==="platform")\{\
-      if(\
-        cube.x + cube.size > o.x &&\
-        cube.x < o.x + o.w &&\
-        cube.y + cube.size >= o.y &&\
-        cube.y + cube.size <= o.y + o.h + 14 &&\
-        cube.dy > 0\
-      )\{\
-        cube.y = o.y - cube.size;\
-        cube.dy = 0;\
-        cube.jumping = false;\
-      \}\
-    \}\
-  \}\
-\
-  if(cube.y + cube.size >= ground)\{\
-    cube.y = ground - cube.size;\
-    cube.dy=0;\
-    cube.jumping=false;\
-    cube.rotation = Math.round(cube.rotation/90)*90;\
-  \}\
-\}\
-\
-function updateObstacles()\{\
-  obstacles.forEach(o=>\{\
-    o.x -= gameSpeed;\
-\
-    if(!o.passed && o.x + (o.size || o.w) < cube.x)\{\
-      score++;\
-      document.getElementById("scoreDisplay").innerText="Score: "+score;\
-      o.passed=true;\
-\
-      if(milestoneIndex < speedMilestones.length &&\
-         score >= speedMilestones[milestoneIndex])\{\
-        gameSpeed++;\
-        milestoneIndex++;\
-      \}\
-    \}\
-  \});\
-\
-  obstacles = obstacles.filter(o => o.x + (o.size||o.w) > 0);\
-\}\
-\
-function checkCollision()\{\
-  for(let o of obstacles)\{\
-    if(o.type==="spike")\{\
-      if(cubeHitsSpike(cube,o))\{\
-        killPlayer();\
-        return;\
-      \}\
-    \}\
-  \}\
-\}\
-\
-function killPlayer()\{\
-  createExplosion(cube.x+cube.size/2, cube.y+cube.size/2);\
-  gameOver=true;\
-  setTimeout(resetGame,1500);\
-\}\
-\
-function resetGame()\{\
-\
-  cube.x=120;\
-  cube.y=ground-60;\
-  cube.dy=0;\
-  cube.rotation=0;\
-  cube.rotationSpeed=0;\
-  cube.targetRotation=0;\
-  cube.jumping=false;\
-\
-  obstacles=[];\
-  particles=[];\
-  score=0;\
-  document.getElementById("scoreDisplay").innerText="Score: 0";\
-\
-  gameSpeed=10;\
-  milestoneIndex=0;\
-  gameOver=false;\
-  frame=0;\
-\}\
-\
-// ------------------------------------------------------------\
-// LOOP\
-// ------------------------------------------------------------\
-let frame=0;\
-function loop()\{\
-  ctx.clearRect(0,0,W,H);\
-\
-  drawStars();\
-\
-  ctx.fillStyle="#111";\
-  ctx.fillRect(0,ground,W,300);\
-\
-  obstacles.forEach(o=>\{\
-    if(o.type==="spike") drawSpike(o);\
-    if(o.type==="platform") drawPlatform(o);\
-  \});\
-\
-  drawParticles();\
-\
-  if(!gameOver) drawCube();\
-\
-  if(!gameOver)\{\
-    frame++;\
-    if(frame % 100 === 0) spawnObstacle();\
-\
-    updateCube();\
-    updateObstacles();\
-    checkCollision();\
-  \}\
-\
-  requestAnimationFrame(loop);\
-\}\
-loop();\
-\
-// ------------------------------------------------------------\
-// INPUT\
-// ------------------------------------------------------------\
-addEventListener("keydown",e=>\{ if(e.code==="Space") jump(); \});\
-addEventListener("touchstart", jump);\
-\
-// ------------------------------------------------------------\
-// RESIZE\
-// ------------------------------------------------------------\
-addEventListener("resize",()=>\{\
-  W=innerWidth; H=innerHeight;\
-  canvas.width=W; canvas.height=H;\
-  ground=H-120;\
-  initStars();\
-\});\
-</script>\
-</body>\
-</html>\
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geometry Dash Mini</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+    touch-action: none;
+  }
+  canvas { background:#000; display:block; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="scoreDisplay" style="
+  position:absolute;top:20px;left:20px;
+  color:#0ff;font:32px monospace;">
+  Score: 0
+</div>
+
+<script>
+// ------------------------------------------------------------
+// CANVAS
+// ------------------------------------------------------------
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+let W = innerWidth, H = innerHeight;
+canvas.width = W; canvas.height = H;
+
+let ground = H - 120;
+
+// ------------------------------------------------------------
+// STARFIELD
+// ------------------------------------------------------------
+const starLayers = [
+  { speed: 0.3, count: 60, stars: [] },
+  { speed: 0.6, count: 40, stars: [] },
+  { speed: 1.0, count: 20, stars: [] }
+];
+
+function initStars(){
+  starLayers.forEach(l=>{
+    l.stars = Array.from({length:l.count}, ()=>({
+      x: Math.random()*W,
+      y: Math.random()*H,
+      size: Math.random()*2+1
+    }));
+  });
+}
+function drawStars(){
+  ctx.fillStyle="#fff";
+  starLayers.forEach(l=>{
+    l.stars.forEach(s=>{
+      s.x -= l.speed;
+      if(s.x < 0) s.x = W;
+      ctx.fillRect(s.x,s.y,s.size,s.size);
+    });
+  });
+}
+initStars();
+
+// ------------------------------------------------------------
+// CUBE TEXTURE (crate.png w/ fallback)
+// ------------------------------------------------------------
+let cubeImg = new Image();
+let cubeImgLoaded = false;
+
+cubeImg.onload = () => cubeImgLoaded = true;
+cubeImg.onerror = () => {
+  console.warn("Failed to load crate.png — using fallback cube.");
+  cubeImgLoaded = false;
+};
+
+// ✅ Correct GitHub folder path
+cubeImg.src = "chronometry dash/assets/crate.png";
+
+// ------------------------------------------------------------
+// PLAYER
+// ------------------------------------------------------------
+let cube = {
+  x:120,
+  y:ground-60,
+  size:60,
+  dy:0,
+  gravity:1.1,
+  jumpForce:-19,
+  jumping:false,
+  rotation:0,
+  rotationSpeed:0,
+  targetRotation:0,
+  airTimeFrames:0,
+  currentAirFrame:0
+};
+
+function calculateAirTime(){
+  let tdy = cube.jumpForce, frames=0;
+  while(true){
+    tdy += cube.gravity;
+    frames++;
+    if(tdy>0 && frames>2 && tdy*frames>65) break;
+  }
+  return frames;
+}
+
+function jump(){
+  if(!cube.jumping){
+    cube.dy = cube.jumpForce;
+    cube.jumping = true;
+
+    cube.airTimeFrames = calculateAirTime();
+    cube.rotationSpeed = 90 / cube.airTimeFrames;
+    cube.targetRotation = cube.rotation + 90;
+  }
+}
+
+// ------------------------------------------------------------
+// OBSTACLES — ONLY SPIKES NOW ✅
+// ------------------------------------------------------------
+let obstacles = [];
+
+function ensureSafeGap(x){
+  let minGap = 180;
+  if(obstacles.length === 0) return x;
+
+  let last = obstacles[obstacles.length - 1];
+  let lastRight = last.x + (last.size);
+
+  if(x - lastRight < minGap){
+    return lastRight + minGap;
+  }
+  return x;
+}
+
+function spawnObstacle(){
+  let x = ensureSafeGap(W + 60);
+  obstacles.push({
+    type:"spike",
+    x:x,
+    y:ground,
+    size:60,
+    passed:false
+  });
+}
+
+function drawSpike(o){
+  ctx.fillStyle="#f00";
+  ctx.beginPath();
+  ctx.moveTo(o.x,o.y);
+  ctx.lineTo(o.x+o.size/2,o.y-o.size);
+  ctx.lineTo(o.x+o.size,o.y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ------------------------------------------------------------
+// TRIANGLE HITBOX
+// ------------------------------------------------------------
+function pointInTriangle(px, py, ax, ay, bx, by, cx, cy){
+  const area = Math.abs((bx-ax)*(cy-ay) - (cx-ax)*(by-ay));
+  const area1 = Math.abs((ax-px)*(by-py) - (bx-px)*(ay-py));
+  const area2 = Math.abs((bx-px)*(cy-py) - (cx-px)*(by-py));
+  const area3 = Math.abs((cx-px)*(ay-py) - (ax-px)*(cy-py));
+  return Math.abs(area - (area1+area2+area3)) < 0.2;
+}
+
+function cubeHitsSpike(cube, spike){
+  let s = spike.size;
+  let ax = spike.x;
+  let ay = spike.y;
+  let bx = spike.x + s/2;
+  let by = spike.y - s;
+  let cx = spike.x + s;
+  let cy = spike.y;
+
+  let corners = [
+    [cube.x, cube.y],
+    [cube.x + cube.size, cube.y],
+    [cube.x, cube.y + cube.size],
+    [cube.x + cube.size, cube.y + cube.size]
+  ];
+
+  for(let c of corners){
+    if(pointInTriangle(c[0],c[1],ax,ay,bx,by,cx,cy)) return true;
+  }
+  return false;
+}
+
+// ------------------------------------------------------------
+// EXPLOSION
+// ------------------------------------------------------------
+let particles=[];
+
+function createExplosion(x,y){
+  for(let i=0;i<20;i++){
+    particles.push({
+      x,y,
+      dx:(Math.random()-0.5)*14,
+      dy:(Math.random()-1.2)*14,
+      size:Math.random()*6+3,
+      alpha:1
+    });
+  }
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.fillStyle=`rgba(255,0,0,${p.alpha})`;
+    ctx.fillRect(p.x,p.y,p.size,p.size);
+    p.x+=p.dx;
+    p.y+=p.dy;
+    p.dy+=0.4;
+    p.alpha-=0.03;
+  });
+  particles = particles.filter(p=>p.alpha>0);
+}
+
+// ------------------------------------------------------------
+// DRAW CUBE
+// ------------------------------------------------------------
+function drawCube(){
+  ctx.save();
+  ctx.translate(cube.x+cube.size/2, cube.y+cube.size/2);
+  ctx.rotate(cube.rotation*Math.PI/180);
+  ctx.shadowBlur = 25;
+  ctx.shadowColor = "#0ff";
+
+  if(cubeImgLoaded){
+    ctx.drawImage(cubeImg,-cube.size/2,-cube.size/2,cube.size,cube.size);
+  } else {
+    ctx.fillStyle="#0ff";
+    ctx.fillRect(-cube.size/2,-cube.size/2,cube.size,cube.size);
+  }
+
+  ctx.restore();
+}
+
+// ------------------------------------------------------------
+// GAME STATE
+// ------------------------------------------------------------
+let gameOver=false;
+let gameSpeed=10;
+let speedMilestones=[10,20,35,50,60,75,100];
+let milestoneIndex=0;
+let score=0;
+
+function updateCube(){
+  cube.dy += cube.gravity;
+  cube.y += cube.dy;
+
+  if(cube.jumping){
+    cube.rotation += cube.rotationSpeed;
+    if(cube.rotation > cube.targetRotation) cube.rotation = cube.targetRotation;
+  }
+
+  if(cube.y + cube.size >= ground){
+    cube.y = ground - cube.size;
+    cube.dy=0;
+    cube.jumping=false;
+    cube.rotation = Math.round(cube.rotation/90)*90;
+  }
+}
+
+function updateObstacles(){
+  obstacles.forEach(o=>{
+    o.x -= gameSpeed;
+
+    if(!o.passed && o.x + o.size < cube.x){
+      score++;
+      document.getElementById("scoreDisplay").innerText="Score: "+score;
+      o.passed=true;
+
+      if(milestoneIndex < speedMilestones.length &&
+         score >= speedMilestones[milestoneIndex]){
+        gameSpeed++;
+        milestoneIndex++;
+      }
+    }
+  });
+
+  obstacles = obstacles.filter(o => o.x + o.size > 0);
+}
+
+function checkCollision(){
+  for(let o of obstacles){
+    if(cubeHitsSpike(cube,o)){
+      killPlayer();
+      return;
+    }
+  }
+}
+
+function killPlayer(){
+  createExplosion(cube.x+cube.size/2,cube.y+cube.size/2);
+  gameOver=true;
+  setTimeout(resetGame,1500);
+}
+
+function resetGame(){
+  cube.x=120;
+  cube.y=ground-60;
+  cube.dy=0;
+  cube.rotation=0;
+  cube.targetRotation=0;
+  cube.jumping=false;
+
+  obstacles=[];
+  particles=[];
+  score=0;
+  document.getElementById("scoreDisplay").innerText="Score: 0";
+
+  gameSpeed=10;
+  milestoneIndex=0;
+  gameOver=false;
+  frame=0;
+}
+
+// ------------------------------------------------------------
+// LOOP
+// ------------------------------------------------------------
+let frame=0;
+function loop(){
+  ctx.clearRect(0,0,W,H);
+
+  drawStars();
+
+  ctx.fillStyle="#111";
+  ctx.fillRect(0,ground,W,300);
+
+  obstacles.forEach(o=> drawSpike(o));
+
+  drawParticles();
+
+  if(!gameOver) drawCube();
+
+  if(!gameOver){
+    frame++;
+    if(frame % 100 === 0) spawnObstacle();
+
+    updateCube();
+    updateObstacles();
+    checkCollision();
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+
+// ------------------------------------------------------------
+// INPUT
+// ------------------------------------------------------------
+addEventListener("keydown",e=>{ if(e.code==="Space") jump(); });
+addEventListener("touchstart", jump);
+
+// ------------------------------------------------------------
+// RESIZE
+// ------------------------------------------------------------
+addEventListener("resize",()=>{
+  W=innerWidth; H=innerHeight;
+  canvas.width=W; canvas.height=H;
+  ground=H-120;
+  initStars();
+});
+</script>
+</body>
+</html>
