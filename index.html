@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Geometry Dash Mini – Smash Walls</title>
+<title>Geometry Dash Mini – Offscreen Spawn Fix</title>
 <style>
   html,body{margin:0;padding:0;background:#000;overflow:hidden;touch-action:none}
   canvas{display:block;background:#000}
@@ -16,18 +16,19 @@
 <div id="score">Score: 0</div>
 
 <script>
-// --------------------------------------------------------------
+// ============================================================
 // CANVAS
-// --------------------------------------------------------------
+// ============================================================
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 let W = innerWidth, H = innerHeight;
 canvas.width = W; canvas.height = H;
+
 let ground = H - 120;
 
-// --------------------------------------------------------------
+// ============================================================
 // STARFIELD
-// --------------------------------------------------------------
+// ============================================================
 const starLayers = [
   {speed:0.3, count:60, stars:[]},
   {speed:0.6, count:40, stars:[]},
@@ -49,19 +50,19 @@ function drawStars(){
     l.stars.forEach(s=>{
       s.x -= l.speed;
       if(s.x < 0) s.x = W;
-      ctx.fillRect(s.x,s.y,s.s,s.s);
+      ctx.fillRect(s.x, s.y, s.s, s.s);
     });
   });
 }
 initStars();
 
-// --------------------------------------------------------------
-// PLAYER (CUBE)
-// --------------------------------------------------------------
+// ============================================================
+// PLAYER
+// ============================================================
 const cube = {
   x:120,
-  targetX:120,     // will move to 160 for smash
-  y:0,
+  targetX:120,
+  y:ground-60,
   size:60,
   dy:0,
   gravity:1.1,
@@ -71,24 +72,25 @@ const cube = {
   rotationSpeed:0,
   targetRotation:0
 };
-cube.y = ground - cube.size;
 
 function calcAirFrames(){
-  let v=cube.jumpForce,f=0;
+  let v=cube.jumpForce, f=0;
   while(true){
-    v += cube.gravity; f++;
+    v+=cube.gravity; f++;
     if(v>0 && f>3 && v*f>65) break;
   }
   return f;
 }
+
 function jump(){
   if(cube.jumping) return;
   cube.dy = cube.jumpForce;
-  cube.jumping = true;
-  const f = calcAirFrames();
-  cube.rotationSpeed = 90/f;
+  cube.jumping=true;
+  let f=calcAirFrames();
+  cube.rotationSpeed=90/f;
   cube.targetRotation = cube.rotation + 90;
 }
+
 function drawCube(){
   ctx.save();
   ctx.translate(cube.x+cube.size/2, cube.y+cube.size/2);
@@ -96,165 +98,161 @@ function drawCube(){
   ctx.shadowBlur=25;
   ctx.shadowColor="#0ff";
   ctx.fillStyle="#0ff";
-  ctx.fillRect(-cube.size/2,-cube.size/2,cube.size,cube.size);
+  ctx.fillRect(-cube.size/2, -cube.size/2, cube.size, cube.size);
   ctx.restore();
 }
 
-// --------------------------------------------------------------
+// ============================================================
 // INPUT
-// --------------------------------------------------------------
+// ============================================================
 addEventListener("keydown", e=>{
   if(e.code==="Space") jump();
 });
-let touchStartX=0,touchStartY=0,touchMoved=false;
+let tX=0,tY=0,moved=false;
 addEventListener("touchstart", e=>{
   let t=e.touches[0];
-  touchStartX=t.clientX;
-  touchStartY=t.clientY;
-  touchMoved=false;
+  tX=t.clientX; tY=t.clientY;
+  moved=false;
 });
 addEventListener("touchmove", e=>{
   let t=e.touches[0];
-  if(Math.abs(t.clientX-touchStartX)>10 ||
-     Math.abs(t.clientY-touchStartY)>10){
-    touchMoved=true;
-  }
+  if(Math.abs(t.clientX-tX)>10 || Math.abs(t.clientY-tY)>10)
+    moved=true;
 });
-addEventListener("touchend", e=>{
-  if(!touchMoved) jump();
+addEventListener("touchend", ()=>{
+  if(!moved) jump();
 });
 
-// --------------------------------------------------------------
+// ============================================================
 // OBSTACLES
-// --------------------------------------------------------------
-let obstacles = [];
+// ============================================================
+let obstacles=[];
 
-// spike spacing
-const GAP_SINGLE = 260;
+// FINAL SPACING RULES
+const GAP_SPIKE = 520;    
+const GAP_SPECIAL = 420;  
+const GAP_BACK = 260;     
+
 const GAP_DOUBLE = 330;
+const PIT_MIN = 180, PIT_MAX = 230;
 
-// pit sizes
-const PIT_MIN = 180;
-const PIT_MAX = 230;
-
-// smash wall (thin)
 const WALL_W = 20;
 const WALL_H = 120;
 
-// --------------------------------------------------------------
-// HELPERS
-// --------------------------------------------------------------
-function ensureGap(x){
-  if(obstacles.length===0) return x;
-  let last = obstacles[obstacles.length-1];
-  let lastRight = last.x + last.w;
-  if(x-lastRight < GAP_SINGLE){
-    return lastRight + GAP_SINGLE;
-  }
-  return x;
+// how far off-screen obstacles spawn
+const SPAWN_MARGIN = 200;
+
+// ============================================================
+// GROUP HELPERS
+// ============================================================
+function groupWidth(o){
+  if(o.type==="spike") return 60;
+  if(o.type==="double") return 60 + GAP_DOUBLE;
+  if(o.type==="triple") return 60 + GAP_DOUBLE*2;
+  if(o.type==="pit") return o.w;
+  if(o.type==="wall") return WALL_W;
+  return 60;
 }
 
-function pushSpike(x){
-  obstacles.push({type:"spike",x,y:ground,w:60,h:60,passed:false});
+function groupEnd(o){ return o.x + groupWidth(o); }
+
+function baseGap(type){
+  if(type==="pit" || type==="wall") return GAP_SPECIAL;
+  return GAP_SPIKE;
 }
-function pushDouble(x){
-  pushSpike(x);
-  pushSpike(x+GAP_DOUBLE);
+
+// NEW: always start from OFF-SCREEN X
+function nextX(type){
+  if(obstacles.length === 0) return W + SPAWN_MARGIN;
+
+  let last = obstacles[obstacles.length - 1];
+  let end = groupEnd(last);
+
+  let desired = Math.max(end + baseGap(type), W + SPAWN_MARGIN);
+
+  // back-to-back compression
+  if(desired - end < 300){
+    desired = end + GAP_BACK;
+  }
+
+  return desired;
 }
-function pushTriple(x){
-  pushSpike(x);
-  pushSpike(x+GAP_DOUBLE);
-  pushSpike(x+GAP_DOUBLE*2);
-}
+
+// ============================================================
+// SPAWN
+// ============================================================
+function pushSpike(x){ obstacles.push({type:"spike",x,y:ground,passed:false}); }
+function pushDouble(x){ obstacles.push({type:"double",x,y:ground,passed:false}); }
+function pushTriple(x){ obstacles.push({type:"triple",x,y:ground,passed:false}); }
 function pushPit(x){
-  let w=PIT_MIN+Math.random()*(PIT_MAX-PIT_MIN);
-  obstacles.push({type:"pit",x,y:ground,w,h:0,passed:false});
+  let w=PIT_MIN + Math.random()*(PIT_MAX-PIT_MIN);
+  obstacles.push({type:"pit",x,y:ground,w,passed:false});
 }
 function pushWall(x){
   obstacles.push({
     type:"wall",
-    x:x,
-    y:ground-WALL_H,
-    w:WALL_W,
-    h:WALL_H,
-    passed:false,
-    shattered:false
+    x, y:ground-WALL_H,
+    w:WALL_W,h:WALL_H,
+    shattered:false,
+    passed:false
   });
 }
 
-// --------------------------------------------------------------
-// PATTERN SYSTEM (fair + 15% walls)
-// --------------------------------------------------------------
+// ============================================================
+// PATTERN GENERATION
+// ============================================================
 function spawnPattern(){
   let r = Math.random();
 
-  // WALL 15%
-  if(r < 0.15){
-    let last = obstacles[obstacles.length-1];
-    if(!last || last.type!=="pit"){
-      let px = ensureGap(W + 120);
-      pushWall(px);
-      return;
-    }
-  }
+  if(r<0.15){ pushWall(nextX("wall")); return; }
+  if(r<0.25){ pushPit(nextX("pit")); return; }
+  if(r<0.55){ pushSpike(nextX("spike")); return; }
+  if(r<0.80){ pushDouble(nextX("double")); return; }
+  if(r<0.95){ pushTriple(nextX("triple")); return; }
 
-  // PIT 10%
-  if(r < 0.25){
-    pushPit(ensureGap(W + 80));
-    return;
-  }
-
-  // SPIKES
-  if(r < 0.55){
-    pushSpike(ensureGap(W + 60));
-    return;
-  }
-  if(r < 0.8){
-    pushDouble(ensureGap(W + 60));
-    return;
-  }
-  if(r < 0.95){
-    pushTriple(ensureGap(W + 60));
-    return;
-  }
-
-  // combo
-  let px = ensureGap(W+60);
-  pushSpike(px);
-  pushDouble(px+GAP_DOUBLE+GAP_SINGLE);
+  pushSpike(nextX("spike"));
+  pushDouble(nextX("double"));
 }
 
-// --------------------------------------------------------------
-// DRAW OBSTACLES
-// --------------------------------------------------------------
+// ============================================================
+// DRAW
+// ============================================================
 function drawSpike(o){
   ctx.fillStyle="#f00";
   ctx.beginPath();
   ctx.moveTo(o.x,o.y);
-  ctx.lineTo(o.x+o.w/2,o.y-o.h);
-  ctx.lineTo(o.x+o.w,o.y);
-  ctx.closePath();
-  ctx.fill();
+  ctx.lineTo(o.x+30,o.y-60);
+  ctx.lineTo(o.x+60,o.y);
+  ctx.closePath(); ctx.fill();
+}
+function drawDouble(o){
+  drawSpike({x:o.x,y:ground});
+  drawSpike({x:o.x+GAP_DOUBLE,y:ground});
+}
+function drawTriple(o){
+  drawSpike({x:o.x,y:ground});
+  drawSpike({x:o.x+GAP_DOUBLE,y:ground});
+  drawSpike({x:o.x+GAP_DOUBLE*2,y:ground});
 }
 function drawPit(o){
   ctx.fillStyle="#000";
   ctx.fillRect(o.x,ground,o.w,300);
 }
 function drawWall(o){
-  ctx.fillStyle="#999";
+  ctx.fillStyle="#bbb";
   ctx.fillRect(o.x,o.y,o.w,o.h);
 }
 
-// --------------------------------------------------------------
-// SHATTER EFFECT
-// --------------------------------------------------------------
+// ============================================================
+// SHATTER
+// ============================================================
 let shards=[];
-function createShatter(x,y){
+function shatter(x,y){
   for(let i=0;i<30;i++){
     shards.push({
       x,y,
-      dx:(Math.random()*6-3),
-      dy:(Math.random()*-6),
+      dx:Math.random()*6-3,
+      dy:Math.random()*-6,
       s:Math.random()*5+2,
       a:1
     });
@@ -264,157 +262,159 @@ function drawShards(){
   shards.forEach(s=>{
     ctx.fillStyle=`rgba(200,220,255,${s.a})`;
     ctx.fillRect(s.x,s.y,s.s,s.s);
-    s.x += s.dx;
-    s.y += s.dy;
-    s.dy += 0.2;
-    s.a -= 0.03;
+    s.x+=s.dx;
+    s.y+=s.dy;
+    s.dy+=0.25;
+    s.a-=0.035;
   });
   shards = shards.filter(s=>s.a>0);
 }
 
-// --------------------------------------------------------------
-// COLLISIONS
-// --------------------------------------------------------------
+// ============================================================
+// COLLISION
+// ============================================================
 function cubeHitsSpike(c,o){
   let ax=o.x, ay=o.y;
-  let bx=o.x+o.w/2, by=o.y-o.h;
-  let cx=o.x+o.w, cy=o.y;
+  let bx=o.x+30, by=o.y-60;
+  let cx=o.x+60, cy=o.y;
 
-  let pts = [
+  let pts=[
     [c.x,c.y],[c.x+c.size,c.y],
     [c.x,c.y+c.size],[c.x+c.size,c.y+c.size]
   ];
 
-  const A = Math.abs((bx-ax)*(cy-ay)-(cx-ax)*(by-ay));
-  function area(px,py,a,b,c,d,e,f){
-    return Math.abs((a*(b-py)+c*(py-f)+e*(f-b))/2);
-  }
+  const A=Math.abs((bx-ax)*(cy-ay)-(cx-ax)*(by-ay));
 
   for(let p of pts){
     let px=p[0], py=p[1];
-    let A1 = Math.abs((ax-px)*(by-py)-(bx-px)*(ay-py));
-    let A2 = Math.abs((bx-px)*(cy-py)-(cx-px)*(by-py));
-    let A3 = Math.abs((cx-px)*(ay-py)-(ax-px)*(cy-py));
+    let A1=Math.abs((ax-px)*(by-py)-(bx-px)*(ay-py));
+    let A2=Math.abs((bx-px)*(cy-py)-(cx-px)*(by-py));
+    let A3=Math.abs((cx-px)*(ay-py)-(ax-px)*(cy-py));
     if(Math.abs(A-(A1+A2+A3))<0.3) return true;
   }
   return false;
 }
+
 function cubeFallsInPit(c,o){
-  return c.y+c.size>=ground && c.x+c.size>o.x && c.x<o.x+o.w;
+  return(c.x+c.size>o.x && c.x<o.x+o.w && c.y+c.size>=ground);
 }
+
 function cubeHitsWall(c,o){
-  return (
-    c.x + c.size > o.x &&
-    c.x < o.x + o.w &&
-    c.y + c.size > o.y &&
-    c.y < o.y + o.h
+  return(
+    c.x+c.size>o.x &&
+    c.x<o.x+o.w &&
+    c.y+c.size>o.y &&
+    c.y<o.y+o.h
   );
 }
 
-// --------------------------------------------------------------
+// ============================================================
 // GAME LOOP
-// --------------------------------------------------------------
+// ============================================================
 let gameSpeed=10;
 let score=0;
 let frame=0;
 let gameOver=false;
 
 function updateCube(){
-  // Jump gravity
-  cube.dy += cube.gravity;
-  cube.y += cube.dy;
+  cube.dy+=cube.gravity;
+  cube.y+=cube.dy;
 
-  // Air rotation
   if(cube.jumping){
-    cube.rotation += cube.rotationSpeed;
-    if(cube.rotation > cube.targetRotation){
-      cube.rotation = cube.targetRotation;
-    }
+    cube.rotation+=cube.rotationSpeed;
+    if(cube.rotation>cube.targetRotation)
+      cube.rotation=cube.targetRotation;
   }
 
-  // Ground
-  if(cube.y + cube.size >= ground){
-    cube.y = ground - cube.size;
-    cube.dy = 0;
-    cube.jumping = false;
-    cube.rotation = Math.round(cube.rotation/90)*90;
+  if(cube.y+cube.size>=ground){
+    cube.y=ground-cube.size;
+    cube.dy=0;
+    cube.jumping=false;
+    cube.rotation=Math.round(cube.rotation/90)*90;
   }
 
-  // X dash movement -> return
-  cube.x += (cube.targetX - cube.x) * 0.25;
+  cube.x += (cube.targetX - cube.x)*0.25;
 }
 
 function updateObstacles(){
   obstacles.forEach(o=>{
     o.x -= gameSpeed;
 
-    // Smash wall
-    if(o.type==="wall" && cubeHitsWall(cube,o) && !o.shattered){
-      o.shattered = true;
-      createShatter(o.x + o.w/2, o.y + o.h/2);
-
-      // Cube dash forward THEN snap back
-      cube.targetX = 160;  // dash to 160
-      setTimeout(()=> cube.targetX = 120, 120); // snap back slight delay
+    if(o.type==="wall" && !o.shattered && cubeHitsWall(cube,o)){
+      o.shattered=true;
+      shatter(o.x+o.w/2,o.y+o.h/2);
+      cube.targetX=160;
+      setTimeout(()=>cube.targetX=120,120);
     }
 
-    if(!o.passed && o.x + o.w < cube.x){
-      o.passed = true;
+    if(!o.passed && groupEnd(o) < cube.x){
+      o.passed=true;
       score++;
-      document.getElementById("score").innerText = "Score: " + score;
+      document.getElementById("score").innerText="Score: "+score;
     }
   });
 
-  obstacles = obstacles.filter(o=>!o.shattered && o.x+o.w>0);
+  obstacles = obstacles.filter(o => o.x + groupWidth(o) > 0);
 }
 
-// --------------------------------------------------------------
-// DEATH
-// --------------------------------------------------------------
 function die(){
-  createShatter(cube.x+cube.size/2, cube.y+cube.size/2);
+  shatter(cube.x+cube.size/2,cube.y+cube.size/2);
   gameOver=true;
   setTimeout(reset,1500);
 }
+
 function checkCollision(){
   for(let o of obstacles){
     if(o.type==="spike" && cubeHitsSpike(cube,o)) return die();
+    if(o.type==="double"){
+      if(
+        cubeHitsSpike(cube,{x:o.x,y:ground}) ||
+        cubeHitsSpike(cube,{x:o.x+GAP_DOUBLE,y:ground})
+      ) return die();
+    }
+    if(o.type==="triple"){
+      if(
+        cubeHitsSpike(cube,{x:o.x,y:ground}) ||
+        cubeHitsSpike(cube,{x:o.x+GAP_DOUBLE,y:ground}) ||
+        cubeHitsSpike(cube,{x:o.x+GAP_DOUBLE*2,y:ground})
+      ) return die();
+    }
     if(o.type==="pit" && cubeFallsInPit(cube,o)) return die();
   }
 }
 
-// --------------------------------------------------------------
-// RESET
-// --------------------------------------------------------------
 function reset(){
-  obstacles=[];
-  shards=[];
-  score=0;
-  document.getElementById("score").innerText = "Score: 0";
   cube.x=120;
   cube.targetX=120;
   cube.y=ground-60;
   cube.dy=0;
-  cube.rotation=0;
   cube.jumping=false;
-  frame=0;
+  cube.rotation=0;
+
+  obstacles=[];
+  shards=[];
+  score=0;
+  document.getElementById("score").innerText="Score: 0";
+
   gameOver=false;
+  frame=0;
 }
 
-// --------------------------------------------------------------
-// LOOP
-// --------------------------------------------------------------
+// ============================================================
+// MAIN LOOP
+// ============================================================
 function loop(){
   ctx.clearRect(0,0,W,H);
 
   drawStars();
 
-  // Ground
   ctx.fillStyle="#111";
   ctx.fillRect(0,ground,W,300);
 
   obstacles.forEach(o=>{
     if(o.type==="spike") drawSpike(o);
+    else if(o.type==="double") drawDouble(o);
+    else if(o.type==="triple") drawTriple(o);
     else if(o.type==="pit") drawPit(o);
     else if(o.type==="wall") drawWall(o);
   });
@@ -425,7 +425,7 @@ function loop(){
 
   if(!gameOver){
     frame++;
-    if(frame % 120 === 0) spawnPattern();
+    if(frame % 75 === 0) spawnPattern();
     updateCube();
     updateObstacles();
     checkCollision();
@@ -435,14 +435,12 @@ function loop(){
 }
 loop();
 
-// --------------------------------------------------------------
+// ============================================================
 // RESIZE
-// --------------------------------------------------------------
-addEventListener("resize",()=>{
-  W=innerWidth;
-  H=innerHeight;
-  canvas.width=W;
-  canvas.height=H;
+// ============================================================
+addEventListener("resize", ()=>{
+  W=innerWidth; H=innerHeight;
+  canvas.width=W; canvas.height=H;
   ground=H-120;
   initStars();
 });
