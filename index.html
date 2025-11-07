@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Geometry Dash Mini – Offscreen Spawn Fix</title>
+<title>Geometry Dash Mini – Fixed + Cube Image</title>
 <style>
   html,body{margin:0;padding:0;background:#000;overflow:hidden;touch-action:none}
   canvas{display:block;background:#000}
@@ -22,7 +22,8 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 let W = innerWidth, H = innerHeight;
-canvas.width = W; canvas.height = H;
+canvas.width = W;
+canvas.height = H;
 
 let ground = H - 120;
 
@@ -57,6 +58,21 @@ function drawStars(){
 initStars();
 
 // ============================================================
+// ✅ CUBE IMAGE (with fallback)
+// ============================================================
+let cubeImg = new Image();
+let cubeImgLoaded = false;
+
+cubeImg.onload = () => cubeImgLoaded = true;
+cubeImg.onerror = () => {
+  console.warn("crate.PNG not found → using fallback cube");
+  cubeImgLoaded = false;
+};
+
+// ✅ Correct path for your asset
+cubeImg.src = "assets/crate.PNG";
+
+// ============================================================
 // PLAYER
 // ============================================================
 const cube = {
@@ -74,7 +90,7 @@ const cube = {
 };
 
 function calcAirFrames(){
-  let v=cube.jumpForce, f=0;
+  let v=cube.jumpForce,f=0;
   while(true){
     v+=cube.gravity; f++;
     if(v>0 && f>3 && v*f>65) break;
@@ -86,19 +102,35 @@ function jump(){
   if(cube.jumping) return;
   cube.dy = cube.jumpForce;
   cube.jumping=true;
-  let f=calcAirFrames();
-  cube.rotationSpeed=90/f;
+
+  let f = calcAirFrames();
+  cube.rotationSpeed = 90/f;
   cube.targetRotation = cube.rotation + 90;
 }
 
+// ============================================================
+// ✅ DRAW CUBE (with PNG support)
+// ============================================================
 function drawCube(){
   ctx.save();
-  ctx.translate(cube.x+cube.size/2, cube.y+cube.size/2);
-  ctx.rotate(cube.rotation*Math.PI/180);
-  ctx.shadowBlur=25;
-  ctx.shadowColor="#0ff";
-  ctx.fillStyle="#0ff";
-  ctx.fillRect(-cube.size/2, -cube.size/2, cube.size, cube.size);
+  ctx.translate(cube.x + cube.size/2, cube.y + cube.size/2);
+  ctx.rotate(cube.rotation * Math.PI/180);
+  ctx.shadowBlur = 25;
+  ctx.shadowColor = "#0ff";
+
+  if (cubeImgLoaded) {
+    ctx.drawImage(
+      cubeImg,
+      -cube.size/2,
+      -cube.size/2,
+      cube.size,
+      cube.size
+    );
+  } else {
+    ctx.fillStyle="#0ff";
+    ctx.fillRect(-cube.size/2, -cube.size/2, cube.size, cube.size);
+  }
+
   ctx.restore();
 }
 
@@ -116,82 +148,75 @@ addEventListener("touchstart", e=>{
 });
 addEventListener("touchmove", e=>{
   let t=e.touches[0];
-  if(Math.abs(t.clientX-tX)>10 || Math.abs(t.clientY-tY)>10)
-    moved=true;
+  if(Math.abs(t.clientX-tX)>10||Math.abs(t.clientY-tY)>10)moved=true;
 });
-addEventListener("touchend", ()=>{
-  if(!moved) jump();
-});
+addEventListener("touchend",()=>{if(!moved)jump()});
 
 // ============================================================
 // OBSTACLES
 // ============================================================
 let obstacles=[];
 
-// FINAL SPACING RULES
-const GAP_SPIKE = 520;    
-const GAP_SPECIAL = 420;  
-const GAP_BACK = 260;     
+// Spacing constants
+const GAP_SPIKE=520;
+const GAP_SPECIAL=420;
+const GAP_BACK=260;
 
-const GAP_DOUBLE = 330;
-const PIT_MIN = 180, PIT_MAX = 230;
+const GAP_DOUBLE=330;
+const PIT_MIN=180,PIT_MAX=230;
 
-const WALL_W = 20;
-const WALL_H = 120;
+const WALL_W=20,WALL_H=120;
 
-// how far off-screen obstacles spawn
-const SPAWN_MARGIN = 200;
+// ALWAYS spawn off-screen
+const SPAWN_MARGIN=200;
 
 // ============================================================
 // GROUP HELPERS
 // ============================================================
 function groupWidth(o){
   if(o.type==="spike") return 60;
-  if(o.type==="double") return 60 + GAP_DOUBLE;
-  if(o.type==="triple") return 60 + GAP_DOUBLE*2;
+  if(o.type==="double") return 60+GAP_DOUBLE;
+  if(o.type==="triple") return 60+GAP_DOUBLE*2;
   if(o.type==="pit") return o.w;
   if(o.type==="wall") return WALL_W;
   return 60;
 }
 
-function groupEnd(o){ return o.x + groupWidth(o); }
+function groupEnd(o){return o.x + groupWidth(o);}
 
 function baseGap(type){
-  if(type==="pit" || type==="wall") return GAP_SPECIAL;
+  if(type==="pit"||type==="wall") return GAP_SPECIAL;
   return GAP_SPIKE;
 }
 
-// NEW: always start from OFF-SCREEN X
+// ✅ Always spawn off-screen at W + 200
 function nextX(type){
-  if(obstacles.length === 0) return W + SPAWN_MARGIN;
+  if(obstacles.length===0) return W + SPAWN_MARGIN;
 
-  let last = obstacles[obstacles.length - 1];
+  let last = obstacles[obstacles.length-1];
   let end = groupEnd(last);
 
   let desired = Math.max(end + baseGap(type), W + SPAWN_MARGIN);
 
-  // back-to-back compression
-  if(desired - end < 300){
-    desired = end + GAP_BACK;
-  }
+  if(desired - end < 300) desired = end + GAP_BACK;
 
   return desired;
 }
 
 // ============================================================
-// SPAWN
+// SPAWN FUNCTIONS
 // ============================================================
 function pushSpike(x){ obstacles.push({type:"spike",x,y:ground,passed:false}); }
 function pushDouble(x){ obstacles.push({type:"double",x,y:ground,passed:false}); }
 function pushTriple(x){ obstacles.push({type:"triple",x,y:ground,passed:false}); }
 function pushPit(x){
-  let w=PIT_MIN + Math.random()*(PIT_MAX-PIT_MIN);
+  let w=PIT_MIN+Math.random()*(PIT_MAX-PIT_MIN);
   obstacles.push({type:"pit",x,y:ground,w,passed:false});
 }
 function pushWall(x){
   obstacles.push({
     type:"wall",
-    x, y:ground-WALL_H,
+    x,y:ground-WALL_H,
     w:WALL_W,h:WALL_H,
     shattered:false,
     passed:false
@@ -202,7 +227,7 @@ function pushWall(x){
 // PATTERN GENERATION
 // ============================================================
 function spawnPattern(){
-  let r = Math.random();
+  let r=Math.random();
 
   if(r<0.15){ pushWall(nextX("wall")); return; }
   if(r<0.25){ pushPit(nextX("pit")); return; }
@@ -215,7 +240,7 @@ function spawnPattern(){
 }
 
 // ============================================================
-// DRAW
+// DRAW OBSTACLES
 // ============================================================
 function drawSpike(o){
   ctx.fillStyle="#f00";
@@ -223,36 +248,41 @@ function drawSpike(o){
   ctx.moveTo(o.x,o.y);
   ctx.lineTo(o.x+30,o.y-60);
   ctx.lineTo(o.x+60,o.y);
-  ctx.closePath(); ctx.fill();
+  ctx.closePath();
+  ctx.fill();
 }
+
 function drawDouble(o){
   drawSpike({x:o.x,y:ground});
   drawSpike({x:o.x+GAP_DOUBLE,y:ground});
 }
+
 function drawTriple(o){
   drawSpike({x:o.x,y:ground});
   drawSpike({x:o.x+GAP_DOUBLE,y:ground});
   drawSpike({x:o.x+GAP_DOUBLE*2,y:ground});
 }
+
 function drawPit(o){
   ctx.fillStyle="#000";
-  ctx.fillRect(o.x,ground,o.w,300);
+  ctx.fillRect(o.x, ground, o.w, 300);
 }
+
 function drawWall(o){
   ctx.fillStyle="#bbb";
   ctx.fillRect(o.x,o.y,o.w,o.h);
 }
 
 // ============================================================
-// SHATTER
+// SHATTER EFFECT
 // ============================================================
 let shards=[];
 function shatter(x,y){
   for(let i=0;i<30;i++){
     shards.push({
       x,y,
-      dx:Math.random()*6-3,
-      dy:Math.random()*-6,
+      dx:(Math.random()*6-3),
+      dy:(Math.random()*-6),
       s:Math.random()*5+2,
       a:1
     });
@@ -267,7 +297,7 @@ function drawShards(){
     s.dy+=0.25;
     s.a-=0.035;
   });
-  shards = shards.filter(s=>s.a>0);
+  shards=shards.filter(s=>s.a>0);
 }
 
 // ============================================================
@@ -438,7 +468,7 @@ loop();
 // ============================================================
 // RESIZE
 // ============================================================
-addEventListener("resize", ()=>{
+addEventListener("resize",()=>{
   W=innerWidth; H=innerHeight;
   canvas.width=W; canvas.height=H;
   ground=H-120;
