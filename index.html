@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Geometry Dash Mini</title>
+<title>Geometry Dash Mini – Perfect Spacing</title>
 <style>
   html, body {
     margin: 0;
@@ -37,7 +37,7 @@ canvas.width = W; canvas.height = H;
 let ground = H - 120;
 
 // ------------------------------------------------------------
-// STARFIELD
+// BACKGROUND STARFIELD
 // ------------------------------------------------------------
 const starLayers = [
   { speed: 0.3, count: 60, stars: [] },
@@ -67,18 +67,13 @@ function drawStars(){
 initStars();
 
 // ------------------------------------------------------------
-// CUBE TEXTURE (crate.png w/ fallback)
+// CUBE TEXTURE
 // ------------------------------------------------------------
 let cubeImg = new Image();
 let cubeImgLoaded = false;
+cubeImg.onload = ()=> cubeImgLoaded = true;
+cubeImg.onerror = ()=> cubeImgLoaded = false;
 
-cubeImg.onload = () => cubeImgLoaded = true;
-cubeImg.onerror = () => {
-  console.warn("Failed to load crate.png — using fallback cube.");
-  cubeImgLoaded = false;
-};
-
-// ✅ Correct GitHub folder path
 cubeImg.src = "chronometry dash/assets/crate.png";
 
 // ------------------------------------------------------------
@@ -95,16 +90,16 @@ let cube = {
   rotation:0,
   rotationSpeed:0,
   targetRotation:0,
-  airTimeFrames:0,
-  currentAirFrame:0
+  airFrames:0
 };
 
-function calculateAirTime(){
-  let tdy = cube.jumpForce, frames=0;
+function calcAirFrames(){
+  let vel = cube.jumpForce;
+  let frames = 0;
   while(true){
-    tdy += cube.gravity;
+    vel += cube.gravity;
     frames++;
-    if(tdy>0 && frames>2 && tdy*frames>65) break;
+    if(vel > 0 && frames > 3 && vel*frames > 65) break;
   }
   return frames;
 }
@@ -113,82 +108,142 @@ function jump(){
   if(!cube.jumping){
     cube.dy = cube.jumpForce;
     cube.jumping = true;
-
-    cube.airTimeFrames = calculateAirTime();
-    cube.rotationSpeed = 90 / cube.airTimeFrames;
+    cube.airFrames = calcAirFrames();
+    cube.rotationSpeed = 90 / cube.airFrames;
     cube.targetRotation = cube.rotation + 90;
   }
 }
 
 // ------------------------------------------------------------
-// OBSTACLES — ONLY SPIKES NOW ✅
+// OBSTACLES
 // ------------------------------------------------------------
 let obstacles = [];
 
-function ensureSafeGap(x){
-  let minGap = 180;
+// Perfect spacing based on your physics
+const GAP_SINGLE = 260;
+const GAP_DOUBLE = 330;
+const GAP_AFTER_PATTERN = 260;
+
+function ensureGap(x){
   if(obstacles.length === 0) return x;
 
-  let last = obstacles[obstacles.length - 1];
-  let lastRight = last.x + (last.size);
+  let last = obstacles[obstacles.length-1];
+  let lastRight = last.x + last.w;
 
-  if(x - lastRight < minGap){
-    return lastRight + minGap;
+  if(x - lastRight < GAP_SINGLE){
+    return lastRight + GAP_SINGLE;
   }
   return x;
 }
 
-function spawnObstacle(){
-  let x = ensureSafeGap(W + 60);
+function pushSingleSpike(x){
   obstacles.push({
-    type:"spike",
+    type:"single",
     x:x,
     y:ground,
-    size:60,
+    w:60,
+    h:60,
     passed:false
   });
 }
 
+function pushDoubleSpike(x){
+  obstacles.push({
+    type:"single",
+    x:x,
+    y:ground,
+    w:60,
+    h:60,
+    passed:false
+  });
+
+  obstacles.push({
+    type:"single",
+    x:x + GAP_DOUBLE,
+    y:ground,
+    w:60,
+    h:60,
+    passed:false
+  });
+}
+
+function pushTriplePack(x){
+  pushSingleSpike(x);
+  pushSingleSpike(x + GAP_DOUBLE);
+  pushSingleSpike(x + GAP_DOUBLE * 2);
+}
+
+// ------------------------------------------------------------
+// PATTERN GENERATOR
+// ------------------------------------------------------------
+function spawnPattern(){
+  let r = Math.random();
+
+  // Single spike
+  if(r < 0.45){
+    let px = ensureGap(W + 60);
+    pushSingleSpike(px);
+    return;
+  }
+
+  // Clean double
+  if(r < 0.75){
+    let px = ensureGap(W + 60);
+    pushDoubleSpike(px);
+    return;
+  }
+
+  // Triple pack
+  if(r < 0.95){
+    let px = ensureGap(W + 60);
+    pushTriplePack(px);
+    return;
+  }
+
+  // Combo pattern: single -> double
+  let px = ensureGap(W + 60);
+  pushSingleSpike(px);
+  pushDoubleSpike(px + GAP_DOUBLE + GAP_SINGLE);
+}
+
+// ------------------------------------------------------------
+// DRAW SPIKES
+// ------------------------------------------------------------
 function drawSpike(o){
-  ctx.fillStyle="#f00";
+  ctx.fillStyle = "#f00";
   ctx.beginPath();
-  ctx.moveTo(o.x,o.y);
-  ctx.lineTo(o.x+o.size/2,o.y-o.size);
-  ctx.lineTo(o.x+o.size,o.y);
+  ctx.moveTo(o.x, o.y);
+  ctx.lineTo(o.x + o.w/2, o.y - o.h);
+  ctx.lineTo(o.x + o.w, o.y);
   ctx.closePath();
   ctx.fill();
 }
 
 // ------------------------------------------------------------
-// TRIANGLE HITBOX
+// HITBOX
 // ------------------------------------------------------------
-function pointInTriangle(px, py, ax, ay, bx, by, cx, cy){
-  const area = Math.abs((bx-ax)*(cy-ay) - (cx-ax)*(by-ay));
-  const area1 = Math.abs((ax-px)*(by-py) - (bx-px)*(ay-py));
-  const area2 = Math.abs((bx-px)*(cy-py) - (cx-px)*(by-py));
-  const area3 = Math.abs((cx-px)*(ay-py) - (ax-px)*(cy-py));
-  return Math.abs(area - (area1+area2+area3)) < 0.2;
+function pointInTri(px,py,ax,ay,bx,by,cx,cy){
+  const area = Math.abs((bx-ax)*(cy-ay)-(cx-ax)*(by-ay));
+  const a1 = Math.abs((ax-px)*(by-py)-(bx-px)*(ay-py));
+  const a2 = Math.abs((bx-px)*(cy-py)-(cx-px)*(by-py));
+  const a3 = Math.abs((cx-px)*(ay-py)-(ax-px)*(cy-py));
+  return Math.abs(area-(a1+a2+a3))<0.2;
 }
 
-function cubeHitsSpike(cube, spike){
-  let s = spike.size;
-  let ax = spike.x;
-  let ay = spike.y;
-  let bx = spike.x + s/2;
-  let by = spike.y - s;
-  let cx = spike.x + s;
-  let cy = spike.y;
+function cubeHitsSpike(c,o){
+  let ax=o.x, ay=o.y;
+  let bx=o.x+o.w/2, by=o.y-o.h;
+  let cx=o.x+o.w, cy=o.y;
 
   let corners = [
-    [cube.x, cube.y],
-    [cube.x + cube.size, cube.y],
-    [cube.x, cube.y + cube.size],
-    [cube.x + cube.size, cube.y + cube.size]
+    [c.x,c.y],
+    [c.x+c.size,c.y],
+    [c.x,c.y+c.size],
+    [c.x+c.size,c.y+c.size]
   ];
-
-  for(let c of corners){
-    if(pointInTriangle(c[0],c[1],ax,ay,bx,by,cx,cy)) return true;
-  }
+  for(let k of corners)
+    if(pointInTri(k[0],k[1],ax,ay,bx,by,cx,cy))
+      return true;
   return false;
 }
 
@@ -196,29 +251,28 @@ function cubeHitsSpike(cube, spike){
 // EXPLOSION
 // ------------------------------------------------------------
 let particles=[];
-
-function createExplosion(x,y){
+function explode(x,y){
   for(let i=0;i<20;i++){
     particles.push({
       x,y,
       dx:(Math.random()-0.5)*14,
       dy:(Math.random()-1.2)*14,
       size:Math.random()*6+3,
-      alpha:1
+      a:1
     });
   }
 }
 
 function drawParticles(){
   particles.forEach(p=>{
-    ctx.fillStyle=`rgba(255,0,0,${p.alpha})`;
+    ctx.fillStyle=`rgba(255,0,0,${p.a})`;
     ctx.fillRect(p.x,p.y,p.size,p.size);
     p.x+=p.dx;
     p.y+=p.dy;
     p.dy+=0.4;
-    p.alpha-=0.03;
+    p.a-=0.03;
   });
-  particles = particles.filter(p=>p.alpha>0);
+  particles = particles.filter(p=>p.a>0);
 }
 
 // ------------------------------------------------------------
@@ -228,16 +282,15 @@ function drawCube(){
   ctx.save();
   ctx.translate(cube.x+cube.size/2, cube.y+cube.size/2);
   ctx.rotate(cube.rotation*Math.PI/180);
-  ctx.shadowBlur = 25;
-  ctx.shadowColor = "#0ff";
+  ctx.shadowBlur=25;
+  ctx.shadowColor="#0ff";
 
-  if(cubeImgLoaded){
+  if(cubeImgLoaded)
     ctx.drawImage(cubeImg,-cube.size/2,-cube.size/2,cube.size,cube.size);
-  } else {
+  else {
     ctx.fillStyle="#0ff";
     ctx.fillRect(-cube.size/2,-cube.size/2,cube.size,cube.size);
   }
-
   ctx.restore();
 }
 
@@ -246,23 +299,26 @@ function drawCube(){
 // ------------------------------------------------------------
 let gameOver=false;
 let gameSpeed=10;
-let speedMilestones=[10,20,35,50,60,75,100];
-let milestoneIndex=0;
 let score=0;
+let frame=0;
 
+// ------------------------------------------------------------
+// UPDATE + LOOP
+// ------------------------------------------------------------
 function updateCube(){
   cube.dy += cube.gravity;
   cube.y += cube.dy;
 
   if(cube.jumping){
     cube.rotation += cube.rotationSpeed;
-    if(cube.rotation > cube.targetRotation) cube.rotation = cube.targetRotation;
+    if(cube.rotation > cube.targetRotation)
+      cube.rotation = cube.targetRotation;
   }
 
   if(cube.y + cube.size >= ground){
     cube.y = ground - cube.size;
-    cube.dy=0;
-    cube.jumping=false;
+    cube.dy = 0;
+    cube.jumping = false;
     cube.rotation = Math.round(cube.rotation/90)*90;
   }
 }
@@ -271,77 +327,56 @@ function updateObstacles(){
   obstacles.forEach(o=>{
     o.x -= gameSpeed;
 
-    if(!o.passed && o.x + o.size < cube.x){
+    if(!o.passed && o.x+o.w < cube.x){
       score++;
       document.getElementById("scoreDisplay").innerText="Score: "+score;
-      o.passed=true;
-
-      if(milestoneIndex < speedMilestones.length &&
-         score >= speedMilestones[milestoneIndex]){
-        gameSpeed++;
-        milestoneIndex++;
-      }
+      o.passed = true;
     }
   });
 
-  obstacles = obstacles.filter(o => o.x + o.size > 0);
+  obstacles = obstacles.filter(o=>o.x+o.w > 0);
 }
 
 function checkCollision(){
   for(let o of obstacles){
     if(cubeHitsSpike(cube,o)){
-      killPlayer();
+      explode(cube.x+cube.size/2, cube.y+cube.size/2);
+      gameOver=true;
+      setTimeout(reset,1500);
       return;
     }
   }
 }
 
-function killPlayer(){
-  createExplosion(cube.x+cube.size/2,cube.y+cube.size/2);
-  gameOver=true;
-  setTimeout(resetGame,1500);
-}
-
-function resetGame(){
+function reset(){
   cube.x=120;
   cube.y=ground-60;
   cube.dy=0;
   cube.rotation=0;
-  cube.targetRotation=0;
   cube.jumping=false;
 
   obstacles=[];
   particles=[];
   score=0;
   document.getElementById("scoreDisplay").innerText="Score: 0";
-
-  gameSpeed=10;
-  milestoneIndex=0;
   gameOver=false;
   frame=0;
 }
 
-// ------------------------------------------------------------
-// LOOP
-// ------------------------------------------------------------
-let frame=0;
 function loop(){
   ctx.clearRect(0,0,W,H);
-
   drawStars();
 
   ctx.fillStyle="#111";
   ctx.fillRect(0,ground,W,300);
 
-  obstacles.forEach(o=> drawSpike(o));
-
+  obstacles.forEach(drawSpike);
   drawParticles();
-
   if(!gameOver) drawCube();
 
   if(!gameOver){
     frame++;
-    if(frame % 100 === 0) spawnObstacle();
+    if(frame % 110 === 0) spawnPattern();
 
     updateCube();
     updateObstacles();
